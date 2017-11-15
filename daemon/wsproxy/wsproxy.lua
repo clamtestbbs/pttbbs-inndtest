@@ -4,9 +4,8 @@ local vstruct = require "vstruct"
 local logind_addr = "unix:/home/bbs/run/logind.connfwd.sock"
 
 local origin_whitelist = {
-    ["http://www.ptt.cc"] = true,
-    ["https://www.ptt.cc"] = true,
-    ["https://robertabcd.github.io"] = true,
+    ["https://www.clam.ml"] = true,
+    ["https://holishing.github.io"] = true,
     ["app://pcman"] = true,
 }
 
