@@ -1,4 +1,4 @@
-SUBDIR=etc
+SUBDIR=etc innd
 BBSHOME?=$(HOME)
 
 all:
