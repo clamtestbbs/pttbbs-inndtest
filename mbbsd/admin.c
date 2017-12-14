@@ -849,8 +849,10 @@ m_mod_board(char *bname)
 	    const char* brd_symbol;
 	    if (newbh.brdattr & BRD_GROUPBOARD)
         	brd_symbol = "£U";
-	    else
+	    else if (newbh.brdattr & BRD_NOTRAN)
 		brd_symbol = "¡·";
+	    else
+		brd_symbol = "¡´";
 
 	    newbh.title[5] = brd_symbol[0];
 	    newbh.title[6] = brd_symbol[1];
@@ -1011,7 +1013,7 @@ m_newbrd(int whatclass, int recover)
             return -1;
         }
     }
-    newboard.brdattr = 0;
+    newboard.brdattr = BRD_NOTRAN;
 #ifdef DEFAULT_AUTOCPLOG
     newboard.brdattr |= BRD_CPLOG;
 #endif
@@ -1034,8 +1036,10 @@ m_newbrd(int whatclass, int recover)
 	    const char* brd_symbol;
 	    if (newboard.brdattr & BRD_GROUPBOARD)
         	brd_symbol = "£U";
-	    else
+	    else if (newboard.brdattr & BRD_NOTRAN)
 		brd_symbol = "¡·";
+	    else
+		brd_symbol = "¡´";
 
 	    newboard.title[5] = brd_symbol[0];
 	    newboard.title[6] = brd_symbol[1];
@@ -1121,7 +1125,7 @@ int make_board_link(const char *bname, int gid)
 
     newboard.gid = gid;
     BRD_LINK_TARGET(&newboard) = bid;
-    newboard.brdattr = BRD_SYMBOLIC;
+    newboard.brdattr = BRD_NOTRAN | BRD_SYMBOLIC;
 
     if (add_board_record(&newboard) < 0)
 	return -1;

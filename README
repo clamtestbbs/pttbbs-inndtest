@@ -23,6 +23,7 @@
                 proto/              mbbsd/ 裡面各個檔案的說明，詳見該目錄的 README
                 z6ibbs.[12].txt     in2 隨筆
 
+        innbbsd/                    轉信
         sample/                     範例
 
                 crontab             提供 bbs執行時須透過 crontab 定時跑的設定
