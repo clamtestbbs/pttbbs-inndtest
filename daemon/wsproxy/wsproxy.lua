@@ -5,7 +5,7 @@ local logind_addr = "unix:/home/bbs/run/logind.connfwd.sock"
 
 local origin_whitelist = {
     ["https://www.clam.ml"] = true,
-    ["https://holishing.github.io"] = true,
+    ["https://www.ptt.cc"] = true,
     ["app://pcman"] = true,
 }
 
