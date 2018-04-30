@@ -122,6 +122,7 @@ char * DBCS_strcasestr(const char* pool, const char *ptr);
 int    DBCS_strncasecmp(const char *s1, const char *s2, size_t len);
 #define HAVE_DBCS_STRCASESTR
 #define HAVE_DBCS_STRNCASECMP
+unsigned DBCS_StringHash(const char *s);
 size_t str_iconv(
 	  const char *fromcode,	/* charset of source string */
 	  const char *tocode,	/* charset of destination string */
@@ -179,6 +180,9 @@ int delete_record2(const char *fpath, const void *rptr, size_t size,
 int bsearch_record(const char *fpath, const void *key,
                    int (*compar)(const void *item1, const void *item2),
                    size_t size, void *buffer);
+ssize_t upper_bound_record(const char *fpath, const void *key,
+			   int (*compar)(const void *item1, const void *item2),
+			   size_t size, void *buffer, size_t *num);
 
 /* vector.c */
 struct Vector {
@@ -306,7 +310,7 @@ ssize_t telnet_process        (TelnetCtx *ctx, unsigned char *buf, ssize_t size)
 
 /* utf8.c */
 int ucs2utf(uint16_t ucs2, uint8_t *utf8);
-int utf2ucs(uint8_t *utf8, uint16_t *pucs);
+int utf2ucs(const uint8_t *utf8, uint16_t *pucs);
 
 /* big5.c */
 extern const uint16_t b2u_table[];

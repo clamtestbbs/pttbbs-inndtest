@@ -4,8 +4,9 @@
 #include <vector>
 #include <boost/optional.hpp>
 extern "C" {
-#include "daemon/boardd/boardd.h"
+#include "cmbbs.h"
 #include "pttstruct.h"
+#include "daemon/boardd/boardd.h"
 }
 
 namespace paths {
@@ -32,13 +33,12 @@ size_t Get(const std::string &fn, ssize_t offset, ssize_t length,
            std::vector<T> *dst) {
   dst->clear();
   ssize_t total = Count<T>(fn);
-  if (total <= 0) {
+  if (total <= 0)
     return 0;
-  }
-  offset %= total;
-  if (offset < 0) {
+  if (offset < 0)
     offset += total;
-  }
+  if (offset < 0)
+    offset = 0;
   ssize_t start_offset = offset;
   int fd = -1;
   while (length < 0 || length-- > 0) {
@@ -72,6 +72,10 @@ boost::optional<bid_t> Resolve(const std::string &name);
 
 // Resolve the children of the board. It may modify SHM.
 std::vector<bid_t> Children(bid_t bid);
+
+// Search by predicate.
+boost::optional<std::string> Search(bid_t bid, const std::string &base_name,
+                                    const fileheader_predicate_t &pred);
 
 }  // namespace boards
 
