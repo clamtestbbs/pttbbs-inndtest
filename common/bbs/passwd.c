@@ -1,5 +1,6 @@
 
 #include <assert.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,8 +118,8 @@ passwd_update_money(int num)
 
     if ((pwdfd = open(fn_passwd, O_WRONLY)) < 0)
         exit(1);
-    lseek(pwdfd, sizeof(userec_t) * (num - 1) +
-	  ((char *)&u.money - (char *)&u), SEEK_SET);
+    lseek(pwdfd, sizeof(userec_t) * (num - 1) + offsetof(userec_t, money),
+	  SEEK_SET);
     write(pwdfd, &money, sizeof(int));
     close(pwdfd);
     return 0;
@@ -220,7 +221,7 @@ checkpasswd(const char *passwd, char *plain)
     pw = fcrypt(plain, passwd);
     if(pw && strcmp(pw, passwd)==0)
 	ok = 1;
-    memset(plain, 0, strlen(plain));
+    explicit_bzero(plain, strlen(plain));
 
     return ok;
 }
