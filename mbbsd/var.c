@@ -411,6 +411,7 @@ char            local_article;
 /* mbbsd.c */
 char            fromhost[STRLEN] = "\0";
 char		fromhost_masked[32] = "\0"; // masked 'fromhost'
+char            from_cc[STRLEN] = "\0";
 char            water_usies = 0;
 char            is_first_login_of_today = 0;
 char            is_login_ready = 0;
@@ -457,11 +458,7 @@ char    reentrant_write_request = 0;
 #endif
 
 #ifdef PTTBBS_UTIL
-    #ifdef OUTTA_TIMER
-	#define COMMON_TIME (SHM->GV2.e.now)
-    #else
-	#define COMMON_TIME (time(0))
-    #endif
+    #define COMMON_TIME (time(0))
 #else
     #define COMMON_TIME (now)
 #endif
