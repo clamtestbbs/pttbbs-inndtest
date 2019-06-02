@@ -11,17 +11,17 @@ OSTYPE!=	uname
 CC:=		gcc
 CXX:=		g++
 
-CLANG!=		sh -c 'type clang >/dev/null 2>&1 || echo ""'
-CCACHE!=	sh -c 'type ccache >/dev/null 2>&1 || echo ""'
+CLANG!=		sh -c 'type clang >/dev/null 2>&1 ; echo $$?'
+CCACHE!=	sh -c 'type ccache >/dev/null 2>&1 ; echo $$?'
 
 .if defined(WITHOUT_CLANG)
 CLANG:=
-.elif $(CLANG)
+.elif $(CLANG)=="0"
 CC:=		clang
 CXX:=		clang++
 .endif
 
-.if $(CCACHE)
+.if $(CCACHE)=="0"
 CC:=		ccache $(CC)
 CXX:=		ccache $(CXX)
 .endif
@@ -32,7 +32,7 @@ PTT_WARN:=	-W -Wall -Wunused -Wno-missing-field-initializers
 PTT_CFLAGS:=	$(PTT_WARN) -pipe -DBBSHOME='"$(BBSHOME)"' -I$(SRCROOT)/include
 PTT_CXXFLAGS:=	$(PTT_WARN) -pipe -DBBSHOME='"$(BBSHOME)"' -I$(SRCROOT)/include
 PTT_LDFLAGS:=	-Wl,--as-needed
-.if $(CLANG)
+.if $(CLANG)=="0"
 PTT_CFLAGS+=	-Qunused-arguments -Wno-parentheses-equality \
 		-fcolor-diagnostics -Wno-invalid-source-encoding
 .endif
