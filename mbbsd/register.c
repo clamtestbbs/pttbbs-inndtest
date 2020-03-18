@@ -28,6 +28,22 @@
 #define MSG_ERR_MAXTRIES "您嘗試錯誤的輸入次數太多，請下次再來吧"
 
 ////////////////////////////////////////////////////////////////////////////
+// Email Input Utility Functions
+////////////////////////////////////////////////////////////////////////////
+
+#define REGISTER_OK (0)
+#define REGISTER_ERR_INVALID_EMAIL (-1)
+#define REGISTER_ERR_EMAILDB (-2)
+#define REGISTER_ERR_TOO_MANY_ACCOUNTS (-3)
+#define REGISTER_ERR_CANCEL (-4)
+
+static int
+register_email_input(const char *userid, char *email);
+
+static int
+register_check_and_update_emaildb(const char *userid, const char *email);
+
+////////////////////////////////////////////////////////////////////////////
 // Value Validation
 ////////////////////////////////////////////////////////////////////////////
 static int
@@ -212,6 +228,8 @@ check_and_expire_account(int uid, const userec_t * urec, int expireRange)
 ////////////////////////////////////////////////////////////////////////////
 
 #define REGCODE_INITIAL "v6" // always 2 characters
+#define REGCODE_LEN     (13)
+#define REGCODE_SZ      (REGCODE_LEN + 1)
 
 static char *
 getregfile(char *buf)
@@ -221,30 +239,38 @@ getregfile(char *buf)
     return buf;
 }
 
-static char *
-makeregcode(char *buf)
+static bool
+saveregcode(const char *regcode)
 {
     char    fpath[PATHLEN];
-    int     fd, i;
-    // prevent ambigious characters: oOlI
-    const char *alphabet = "qwertyuipasdfghjkzxcvbnmoQWERTYUPASDFGHJKLZXCVBNM";
-
-    /* generate a new regcode */
-    buf[13] = 0;
-    buf[0] = REGCODE_INITIAL[0];
-    buf[1] = REGCODE_INITIAL[1];
-    for( i = 2 ; i < 13 ; ++i )
-	buf[i] = alphabet[random() % strlen(alphabet)];
+    int     fd;
 
     getregfile(fpath);
     if((fd = OpenCreate(fpath, O_WRONLY)) == -1){
 	perror("open");
-	exit(1);
+	return false;
     }
-    write(fd, buf, 13);
+    if (write(fd, regcode, strlen(regcode)) < 0) {
+	close(fd);
+	return false;
+    }
     close(fd);
+    return true;
+}
 
-    return buf;
+static void
+makeregcode(char *buf)
+{
+    int     i;
+    // prevent ambigious characters: oOlI
+    const char *alphabet = "qwertyuipasdfghjkzxcvbnmoQWERTYUPASDFGHJKLZXCVBNM";
+
+    /* generate a new regcode */
+    buf[REGCODE_LEN] = 0;
+    buf[0] = REGCODE_INITIAL[0];
+    buf[1] = REGCODE_INITIAL[1];
+    for( i = 2 ; i < REGCODE_LEN ; ++i )
+	buf[i] = alphabet[random() % strlen(alphabet)];
 }
 
 // getregcode reads the register code from jobspool directory. If found,
@@ -261,10 +287,10 @@ getregcode(char *buf)
 	buf[0] = 0;
 	return -1;
     }
-    int r = read(fd, buf, 13);
+    int r = read(fd, buf, REGCODE_LEN);
     close(fd);
-    buf[13] = 0;
-    return r == 13 ? 0 : -1;
+    buf[REGCODE_LEN] = 0;
+    return r == REGCODE_LEN ? 0 : -1;
 }
 
 void
@@ -280,23 +306,35 @@ delregcodefile(void)
 // Justify Utilities
 ////////////////////////////////////////////////////////////////////////////
 
+static void email_regcode(const char *regcode, const char *email)
+{
+    char buf[256];
+
+    /*
+     * It is intended to use BBSENAME instead of BBSNAME here.
+     * Because recently many poor users with poor mail clients
+     * (or evil mail servers) cannot handle/decode Chinese
+     * subjects (BBSNAME) correctly, so we'd like to use
+     * BBSENAME here to prevent subject being messed up.
+     * And please keep BBSENAME short or it may be truncated
+     * by evil mail servers.
+     */
+    snprintf(buf, sizeof(buf), " " BBSENAME " - [ %s ]", regcode);
+
+    bsmtp("etc/registermail", buf, email, "non-exist");
+}
+
 static void
 email_justify(const userec_t *muser)
 {
-	char buf[256], genbuf[256];
-	/*
-	 * It is intended to use BBSENAME instead of BBSNAME here.
-	 * Because recently many poor users with poor mail clients
-	 * (or evil mail servers) cannot handle/decode Chinese
-	 * subjects (BBSNAME) correctly, so we'd like to use
-	 * BBSENAME here to prevent subject being messed up.
-	 * And please keep BBSENAME short or it may be truncated
-	 * by evil mail servers.
-	 */
-	snprintf(buf, sizeof(buf),
-		 " " BBSENAME " - [ %s ]", makeregcode(genbuf));
+	char regcode[REGCODE_SZ];
 
-	bsmtp("etc/registermail", buf, muser->email, "non-exist");
+	makeregcode(regcode);
+	if (!saveregcode(regcode))
+	    exit(1);
+
+	email_regcode(regcode, muser->email);
+
         move(20,0);
         clrtobot();
 	outs("我們即將寄出認證信 (您應該會在數分鐘到數小時內收到)\n"
@@ -559,9 +597,131 @@ do_register_captcha()
 #endif
 }
 
+static bool
+query_yn(int y, const char *msg)
+{
+    int try = 0;
+    do {
+        char ans[3];
+	if (++try > 10) {
+	    vmsg(MSG_ERR_MAXTRIES);
+	    exit(1);
+	}
+        getdata(y, 0, msg, ans, 3, LCECHO);
+        if (ans[0] == 'y')
+	    return true;
+        if (ans[0] == 'n')
+	    return false;
+        bell();
+    } while (1);
+}
+
 /////////////////////////////////////////////////////////////////////////////
 // New Registration (Phase 1: Create Account)
 /////////////////////////////////////////////////////////////////////////////
+
+static int
+new_register_email_verify(char *email)
+{
+    clear();
+    vs_hdr("E-Mail 認證");
+    move(1, 0);
+    outs("您好, 本站要求註冊時進行 E-Mail 認證:\n"
+	 "  請輸入您的 E-Mail , 我們會寄發含有認證碼的信件給您\n"
+	 "  收到後請到請輸入認證碼, 即可進行註冊\n"
+	 "  註: 本站不接受 yahoo, kimo等免費的 E-Mail\n"
+	 "\n"
+	 "**********************************************************\n"
+	 "* 若過久未收到請到郵件垃圾桶檢查是否被當作垃圾信(SPAM)了,*\n"
+	 "* 另外若輸入後發生認證碼錯誤請先確認輸入是否為最後一封   *\n"
+	 "* 收到的認證信，若真的仍然不行請再重填一次 E-Mail.       *\n"
+	 "**********************************************************\n");
+
+    // Get a valid email from user.
+    int err;
+    int tries = 0;
+    do {
+	if (++tries > 10) {
+	    return REGISTER_ERR_CANCEL;
+	}
+
+	// Use "-" for userid, regmaild rejects empty userid, which we don't
+	// really have a userid yet.
+	err = register_email_input("-", email);
+	switch (err) {
+	    case REGISTER_OK:
+		if (strcasecmp(email, "x") != 0)
+		    break;
+		// User input is "x".
+		err = REGISTER_ERR_INVALID_EMAIL;
+		// fallthrough
+	    case REGISTER_ERR_INVALID_EMAIL:
+	    case REGISTER_ERR_CANCEL:
+		move(15, 0); clrtobot();
+		move(17, 0);
+		outs("指定的 E-Mail 不正確。可能你輸入的是免費的Email，\n");
+		outs("或曾有使用者以本 E-Mail 認證後被取消資格。\n\n");
+		pressanykey();
+		continue;
+
+	    case REGISTER_ERR_TOO_MANY_ACCOUNTS:
+		move(15, 0); clrtobot();
+		move(17, 0);
+		outs("指定的 E-Mail 已註冊過多帳號, 請使用其他 E-Mail.\n");
+		pressanykey();
+		continue;
+
+	    default:
+		return err;
+	}
+    } while (err != REGISTER_OK);
+
+    // Send and check regcode.
+    char inregcode[REGCODE_SZ] = {0}, regcode[REGCODE_SZ];
+    char buf[80];
+    makeregcode(regcode);
+
+    tries = 0;
+    int num_sent = 0;
+    bool send_code = true;
+    while (1) {
+	if (++tries > 10) {
+	    vmsg("錯誤次數過多, 請稍後再試");
+	    return REGISTER_ERR_CANCEL;
+	}
+	if (send_code) {
+	    tries++;  // Expensive operation.
+	    email_regcode(regcode, email);
+	    send_code = false;
+	    num_sent++;
+	    snprintf(buf, sizeof(buf),
+		    ANSI_COLOR(1;31) " (第 %d 次)" ANSI_RESET, num_sent);
+	}
+
+	move(15, 0); clrtobot();
+	outs("認證碼已寄送至:");
+	if (num_sent > 1) outs(buf);
+	outs("\n");
+	outs(ANSI_COLOR(1;33) "  ");
+	outs(email);
+	outs(ANSI_RESET "\n");
+	outs("認證碼總共應有十三碼, 沒有空白字元.\n");
+	outs("若過久沒收到認證碼可輸入 x 重新寄送.\n");
+
+	getdata(20, 0, "請輸入認證碼：",
+		inregcode, sizeof(inregcode), DOECHO);
+	if (strcasecmp(inregcode, "x") == 0) {
+	    send_code = true;
+	    continue;
+	}
+	if (strcasecmp(inregcode, regcode) != 0) {
+	    vmsg("認證碼錯誤");
+	    continue;
+	}
+	break;
+    }
+    return REGISTER_OK;
+}
 
 void
 new_register(void)
@@ -571,6 +731,14 @@ new_register(void)
     int             try, id, uid;
     const char 	   *errmsg = NULL;
     uint8_t         ua_version = get_system_user_agreement_version();
+    bool	    email_verified = false;
+
+#ifdef REQUIRE_SECURE_CONN_TO_REGISTER
+    if (!mbbsd_is_secure_connection()) {
+	vmsg("請使用安全連線註冊帳號!");
+	exit(1);
+    }
+#endif
 
     if (!accept_user_aggrement()) {
 	vmsg("抱歉, 您須要接受使用者條款才能註冊帳號享受我們的服務唷!");
@@ -596,6 +764,14 @@ new_register(void)
 
 #ifdef DBCSAWARE
     newuser.uflag |= UF_DBCS_AWARE | UF_DBCS_DROP_REPEAT;
+#endif
+
+#ifdef REQUIRE_VERIFY_EMAIL_AT_REGISTER
+    if (new_register_email_verify(newuser.email) == REGISTER_OK) {
+	email_verified = true;
+    } else {
+	exit(1);
+    }
 #endif
 
 #ifdef UF_ADBANNER_USONG
@@ -679,8 +855,14 @@ new_register(void)
 	strlcpy(newuser.passwd, genpasswd(passbuf), PASSLEN);
 	break;
     }
+
     // set-up more information.
-    move(19, 0); clrtobot();
+    int y = 17;
+    move(y, 0); clrtobot();
+    outs("[ " ANSI_COLOR(1;33));
+    outs(newuser.userid);
+    outs(ANSI_RESET " ] 您好，請填寫您的個人資料。");
+    y++;
 
     // warning: because currutmp=NULL, we can simply pass newuser.* to getdata.
     // DON'T DO THIS IF YOUR currutmp != NULL.
@@ -691,18 +873,19 @@ new_register(void)
 	    vmsg(MSG_ERR_MAXTRIES);
 	    exit(1);
 	}
-	getdata(19, 0, "綽號暱稱：", newuser.nickname,
+	getdata(y, 0, "綽號暱稱：", newuser.nickname,
 		sizeof(newuser.nickname), DOECHO);
     }
 
     try = 0;
+    y++;
     while (strlen(newuser.realname) < 4)
     {
 	if (++try > 10) {
 	    vmsg(MSG_ERR_MAXTRIES);
 	    exit(1);
 	}
-	getdata(20, 0, "真實姓名：", newuser.realname,
+	getdata(y, 0, "真實姓名：", newuser.realname,
 		sizeof(newuser.realname), DOECHO);
 
 	if ((errmsg = isvalidname(newuser.realname))) {
@@ -712,13 +895,31 @@ new_register(void)
     }
 
     try = 0;
+    y++;
+    while (strlen(newuser.career) < 6)
+    {
+	if (++try > 10) {
+	    vmsg(MSG_ERR_MAXTRIES);
+	    exit(1);
+	}
+	getdata(y, 0, "服務單位：", newuser.career,
+		sizeof(newuser.career), DOECHO);
+
+	if ((errmsg = isvalidcareer(newuser.career))) {
+	    memset(newuser.career, 0, sizeof(newuser.career));
+	    vmsg(errmsg);
+	}
+    }
+
+    try = 0;
+    y++;
     while (strlen(newuser.address) < 8)
     {
 	if (++try > 10) {
 	    vmsg(MSG_ERR_MAXTRIES);
 	    exit(1);
 	}
-	getdata(21, 0, "聯絡地址：", newuser.address,
+	getdata(y, 0, "聯絡地址：", newuser.address,
 		sizeof(newuser.address), DOECHO);
 
         // We haven't ask isForeign yet, so assume that's one (for lesser check)
@@ -728,25 +929,24 @@ new_register(void)
 	}
     }
 
-    try = 0;
-    do {
-        char ans[3];
-	if (++try > 10) {
-	    vmsg(MSG_ERR_MAXTRIES);
-	    exit(1);
-	}
-        mvouts(22, 0, "本站部份看板可能有限制級內容只適合成年人士閱\讀。");
-        getdata(23, 0,"您是否年滿十八歲並同意觀看此類看板(若否請輸入n)? [y/n]:",
-                ans, 3, LCECHO);
-        if (ans[0] == 'y') {
-            newuser.over_18  = 1;
-            break;
-        } else if (ans[0] == 'n') {
-            newuser.over_18  = 0;
-            break;
-        }
-        bell();
-    } while (1);
+    // Over 18.
+    y++;
+    mvouts(y, 0, "本站部份看板可能有限制級內容只適合成年人士閱\讀。");
+    if (query_yn(y + 1,
+		"您是否年滿十八歲並同意觀看此類看板(若否請輸入n)? [y/n]:"))
+	newuser.over_18 = 1;
+
+    // Whether to limit login to secure connection only.
+    if (mbbsd_is_secure_connection()) {
+	// Screen full.
+	y = 17;
+	move(y, 0); clrtobot();
+	outs("[ 連線設定 ]");
+
+	y++;
+	if (query_yn(y, "您是否要限制此帳號僅能使用安全連線登入? [y/n]:"))
+	    newuser.uflag |= UF_SECURE_LOGIN;
+    }
 
 #ifdef REGISTER_VERIFY_CAPTCHA
     if (!verify_captcha("為了繼續您的註冊程序\n"))
@@ -790,6 +990,18 @@ new_register(void)
         system(buf);
     }
 #endif
+
+    // Mark register complete after the user has been created.
+    if (email_verified) {
+	if (register_check_and_update_emaildb(newuser.userid, newuser.email) ==
+		REGISTER_OK) {
+	    char justify[sizeof(newuser.justify)];
+	    snprintf(justify, sizeof(justify), "<E-Mail>: %s", Cdate(&now));
+	    pwcuRegCompleteJustify(justify);
+	} else {
+	    vmsg("Email 認證設定失敗, 請稍後自行再次填寫註冊單");
+	}
+    }
 }
 
 int
@@ -1051,12 +1263,72 @@ create_regform_request()
     return 1;
 }
 
+static int
+register_email_input(const char *userid, char *email)
+{
+    while (1) {
+	email[0] = 0;
+	getfield(15, "身分認證用", REGNOTES_ROOT "email", "E-Mail Address", email, EMAILSZ);
+	strip_blank(email, email);
+	if (strlen(email) == 0)
+	    return REGISTER_ERR_CANCEL;
+	if (strcmp(email, "X") == 0) email[0] = 'x';
+	if (strcmp(email, "x") == 0)
+	    return REGISTER_OK;
+
+	if (!check_regmail(email))
+	    return REGISTER_ERR_INVALID_EMAIL;
+
+#ifdef USE_EMAILDB
+	int email_count;
+
+	// before long waiting, alert user
+	move(18, 0); clrtobot();
+	outs("正在確認 email, 請稍候...\n");
+	doupdate();
+
+	email_count = emaildb_check_email(userid, email);
+	if (email_count < 0)
+	    return REGISTER_ERR_EMAILDB;
+	if (email_count >= EMAILDB_LIMIT)
+	    return REGISTER_ERR_TOO_MANY_ACCOUNTS;
+#endif
+
+	move(17, 0);
+	outs(ANSI_COLOR(1;31)
+		"\n提醒您: 如果之後發現您輸入的註冊資料有問題，不僅註冊會被取消，\n"
+		"原本認證用的 E-mail 也不能再用來認證。\n" ANSI_RESET);
+	char yn[3];
+	getdata(16, 0, "請再次確認您輸入的 E-Mail 位置正確嗎? [y/N]",
+		yn, sizeof(yn), LCECHO);
+	clrtobot();
+	if (yn[0] == 'y')
+	    return REGISTER_OK;
+    }
+}
+
+static int
+register_check_and_update_emaildb(const char *userid, const char *email)
+{
+#ifdef USE_EMAILDB
+    int email_count = emaildb_check_email(userid, email);
+    if (email_count < 0)
+	return REGISTER_ERR_EMAILDB;
+    if (email_count >= EMAILDB_LIMIT)
+	return REGISTER_ERR_TOO_MANY_ACCOUNTS;
+
+    if (emaildb_update_email(cuser.userid, email) < 0)
+	return REGISTER_ERR_EMAILDB;
+#endif
+    return REGISTER_OK;
+}
+
 static void
 toregister(char *email)
 {
     clear();
     vs_hdr("認證設定");
-    if (cuser.userlevel & PERM_NOREGCODE){
+    if (cuser.userlevel & PERM_NOREGCODE) {
 	strcpy(email, "x");
 	goto REGFORM2;
     }
@@ -1076,89 +1348,71 @@ toregister(char *email)
 	 "* 收到的認證信，若真的仍然不行請再重填一次 E-Mail.       *\n"
 	 "**********************************************************\n");
 
-    while (1) {
-	email[0] = 0;
-	getfield(15, "身分認證用", REGNOTES_ROOT "email", "E-Mail Address", email, 50);
-	strip_blank(email, email);
-	if (strcmp(email, "X") == 0) email[0] = 'x';
-	if (strcmp(email, "x") == 0)
-	    break;
-	else if (check_regmail(email)) {
-	    char            yn[3];
-#ifdef USE_EMAILDB
-	    int email_count;
+    int err;
+    do {
+	err = register_email_input(cuser.userid, email);
 
-	    // before long waiting, alert user
-	    move(18, 0); clrtobot();
-	    outs("正在確認 email, 請稍候...\n");
-	    doupdate();
+	if (err == REGISTER_OK && strcasecmp(email, "x") != 0)
+	    err = register_check_and_update_emaildb(cuser.userid, email);
 
-	    email_count = emaildb_check_email(email);
+	switch (err) {
+	    case REGISTER_OK:
+		break;
 
-	    if (email_count < 0) {
+	    case REGISTER_ERR_INVALID_EMAIL:
+		move(15, 0); clrtobot();
+		move(17, 0);
+		outs("指定的 E-Mail 不正確。可能你輸入的是免費的Email，\n");
+		outs("或曾有使用者以本 E-Mail 認證後被取消資格。\n\n");
+		outs("若您無 E-Mail 請輸入 x 由站長手動認證，\n");
+		outs("但注意手動認證通常會花上數天以上的時間。\n");
+		pressanykey();
+		continue;
+
+	    case REGISTER_ERR_EMAILDB:
 		move(15, 0); clrtobot();
 		move(17, 0);
 		outs("email 認證系統發生問題, 請稍後再試，或輸入 x 採手動認證。\n");
 		pressanykey();
-		return;
-	    } else if (email_count >= EMAILDB_LIMIT) {
+		continue;
+
+	    case REGISTER_ERR_TOO_MANY_ACCOUNTS:
 		move(15, 0); clrtobot();
 		move(17, 0);
 		outs("指定的 E-Mail 已註冊過多帳號, 請使用其他 E-Mail, 或輸入 x 採手動認證\n");
 		outs("但注意手動認證通常會花上數天以上的時間。\n");
 		pressanykey();
-	    } else {
-#endif
-	    move(17, 0);
-	    outs(ANSI_COLOR(1;31)
-	    "\n提醒您: 如果之後發現您輸入的註冊資料有問題，不僅註冊會被取消，\n"
-	    "原本認證用的 E-mail 也不能再用來認證。\n" ANSI_RESET);
-	    getdata(16, 0, "請再次確認您輸入的 E-Mail 位置正確嗎? [y/N]",
-		    yn, sizeof(yn), LCECHO);
-	    clrtobot();
-	    if (yn[0] == 'y')
-		break;
-#ifdef USE_EMAILDB
-	    }
-#endif
-	} else {
-	    move(15, 0); clrtobot();
-	    move(17, 0);
-	    outs("指定的 E-Mail 不正確。可能你輸入的是免費的Email，\n");
-	    outs("或曾有使用者以本 E-Mail 認證後被取消資格。\n\n");
-	    outs("若您無 E-Mail 請輸入 x 由站長手動認證，\n");
-	    outs("但注意手動認證通常會花上數天以上的時間。\n");
-	    pressanykey();
+		continue;
+
+	    case REGISTER_ERR_CANCEL:
+		vmsg("操作取消。");
+		return;
+
+	    default:
+		assert(!"unhandled");
+		exit(1);
+		return;
 	}
-    }
-#ifdef USE_EMAILDB
-    // XXX for 'x', the check will be made later... let's simply ignore it.
-    if (strcmp(email, "x") != 0 &&
-	emaildb_update_email(cuser.userid, email) < 0) {
-	move(15, 0); clrtobot();
-	move(17, 0);
-	outs("email 認證系統發生問題, 請稍後再試，或輸入 x 採手動認證。\n");
-	pressanykey();
-	return;
-    }
-#endif
- REGFORM2:
-    if (strcasecmp(email, "x") == 0) {	/* 手動認證 */
-	if (!create_regform_request())
-	    vmsg("註冊申請單建立失敗。請至 " BN_BUGREPORT " 報告。");
-    } else {
-	// register by mail or mobile
+    } while (err != REGISTER_OK);
+
+    if (strcasecmp(email, "x") != 0) {
 	pwcuRegSetTemporaryJustify("<Email>", email);
 	email_justify(cuser_ref);
+	return;
     }
+
+ REGFORM2:
+    // Manual verification.
+    if (!create_regform_request())
+	vmsg("註冊申請單建立失敗。請至 " BN_BUGREPORT " 報告。");
 }
 
 int
 u_register(void)
 {
     char            rname[20], addr[50];
-    char            career[40], email[50];
-    char            inregcode[14], regcode[50];
+    char            career[40], email[EMAILSZ];
+    char            inregcode[REGCODE_SZ], regcode[REGCODE_SZ];
     char            ans[3], *errcode;
     int		    i = 0;
     int             isForeign = (HasUserFlag(UF_FOREIGN)) ? 1 : 0;
@@ -1224,7 +1478,7 @@ u_register(void)
                 strcmp(inregcode, "x") == 0 ||
                 strcmp(inregcode, "X") == 0 )
 		break;
-	    if( strlen(inregcode) != 13 || inregcode[0] == ' ') {
+	    if( strlen(inregcode) != REGCODE_LEN || inregcode[0] == ' ') {
                 LOG_IF((LOG_CONF_BAD_REG_CODE && inregcode[0]),
                        log_filef("log/reg_badcode.log", LOG_CREAT,
                                  "%s %s INCOMPLETE [%s]\n",
