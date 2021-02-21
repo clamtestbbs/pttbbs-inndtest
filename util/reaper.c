@@ -1,8 +1,6 @@
 #define _UTIL_C_
 #include "bbs.h"
 
-time4_t now;
-
 #undef MAX_GUEST_LIFE
 #undef MAX_LIFE
 

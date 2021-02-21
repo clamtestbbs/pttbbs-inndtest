@@ -6,8 +6,6 @@ void userec_add_to_uhash(int n, userec_t *id, int onfly);
 void fill_uhash(int onfly);
 void load_uhash(void);
 
-SHM_t *SHM;
-
 int main()
 {
     setgid(BBSGID);
