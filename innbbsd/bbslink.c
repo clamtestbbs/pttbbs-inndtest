@@ -112,7 +112,7 @@ extern char    *PATH;
 char            CONTROL_BUF[MAXBUFLEN];
 extern char    *CONTROL;
 
-char           *BODY, *HEAD;
+//char           *BODY, *HEAD;
 
 int             USEIHAVE = 1;
 int             USEPOST = 0;
