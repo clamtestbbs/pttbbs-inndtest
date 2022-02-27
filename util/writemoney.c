@@ -2,7 +2,6 @@
 #define _UTIL_C_
 #include "bbs.h"
 
-time4_t now;
 extern SHM_t   *SHM;
 
 int main()

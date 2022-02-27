@@ -433,6 +433,7 @@ main(/*int argc, char **argv*/)
 
 	printf("壓縮使用者上線監控\n");
 	gzip(log_file, "usies", buf);
+	gzip("innd/bbslog", "innbbsd", buf);
 	gzip("etc/mailog", "mailog", buf);
 
 	/* Ptt 節日處理 */
